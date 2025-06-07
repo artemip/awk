@@ -24,100 +24,6 @@ interface GamePlayer {
 }
 
 type Point = { x: number; y: number };
-type Zone = { 
-  id: string; 
-  name: string; 
-  polygon: Point[];
-  color: number;
-  tint: number;
-};
-
-// Define the six consciousness zones (will be scaled to screen size)
-const zones: Zone[] = [
-  {
-    id: 'logic',
-    name: 'Logic',
-    polygon: [
-      { x: 0, y: 0 },
-      { x: 0.5, y: 0 },
-      { x: 0.4375, y: 0.33 },
-      { x: 0.25, y: 0.42 },
-      { x: 0, y: 0.33 }
-    ],
-    color: 0x00ff00,
-    tint: 0x90EE90 // Light green
-  },
-  {
-    id: 'emotion',
-    name: 'Emotion',
-    polygon: [
-      { x: 0.5, y: 0 },
-      { x: 1, y: 0 },
-      { x: 1, y: 0.33 },
-      { x: 0.75, y: 0.42 },
-      { x: 0.5625, y: 0.33 },
-      { x: 0.4375, y: 0.33 }
-    ],
-    color: 0xff0080,
-    tint: 0xFFB6C1 // Light pink
-  },
-  {
-    id: 'memory',
-    name: 'Memory',
-    polygon: [
-      { x: 1, y: 0.33 },
-      { x: 1, y: 0.67 },
-      { x: 0.75, y: 0.58 },
-      { x: 0.5625, y: 0.67 },
-      { x: 0.75, y: 0.42 }
-    ],
-    color: 0x0080ff,
-    tint: 0x87CEEB // Sky blue
-  },
-  {
-    id: 'impulse',
-    name: 'Impulse',
-    polygon: [
-      { x: 1, y: 0.67 },
-      { x: 1, y: 1 },
-      { x: 0.5, y: 1 },
-      { x: 0.4375, y: 0.67 },
-      { x: 0.5625, y: 0.67 },
-      { x: 0.75, y: 0.58 }
-    ],
-    color: 0xff8000,
-    tint: 0xFFDAAB // Peach
-  },
-  {
-    id: 'anxiety',
-    name: 'Anxiety',
-    polygon: [
-      { x: 0.5, y: 1 },
-      { x: 0, y: 1 },
-      { x: 0, y: 0.67 },
-      { x: 0.25, y: 0.58 },
-      { x: 0.4375, y: 0.67 }
-    ],
-    color: 0x8000ff,
-    tint: 0xDDA0DD // Plum
-  },
-  {
-    id: 'instinct',
-    name: 'Instinct',
-    polygon: [
-      { x: 0, y: 0.67 },
-      { x: 0, y: 0.33 },
-      { x: 0.25, y: 0.42 },
-      { x: 0.4375, y: 0.33 },
-      { x: 0.5625, y: 0.33 },
-      { x: 0.5625, y: 0.67 },
-      { x: 0.4375, y: 0.67 },
-      { x: 0.25, y: 0.58 }
-    ],
-    color: 0xff0000,
-    tint: 0xFFA07A // Light salmon
-  }
-];
 
 const ROLE_COLORS: Record<string, number> = {
   Logic: 0x00ff00,     // Green
@@ -138,8 +44,28 @@ class GameScene extends Phaser.Scene {
   private moveInterval: number = 16; // ~60 FPS movement updates (was 50ms)
   private gameWidth: number = 0;
   private gameHeight: number = 0;
-
-  // Scenario UI elements
+  
+  // UI elements
+  private scenarioText: Phaser.GameObjects.Text | null = null;
+  private timerText: Phaser.GameObjects.Text | null = null;
+  private mentalStabilityMeter: Phaser.GameObjects.Rectangle | null = null;
+  private socialReputationMeter: Phaser.GameObjects.Rectangle | null = null;
+  private chaosMeter: Phaser.GameObjects.Rectangle | null = null;
+  private responseCountText: Phaser.GameObjects.Text | null = null;
+  private endGameText: Phaser.GameObjects.Text | null = null;
+  
+  // Dynamic axes support
+  private currentAxes: any = null;
+  private axisLabels: Phaser.GameObjects.Text[] = [];
+  private teamVoteBar: Phaser.GameObjects.Graphics | null = null;
+  private teamVoteIndicator: Phaser.GameObjects.Arc | null = null;
+  private currentTeamVote: { axis1: number; axis2: number } = { axis1: 0, axis2: 0 };
+  
+  // Scenario tracking
+  private currentScenario: any = null;
+  private scenarioEndTime: number = 0;
+  
+  // Legacy UI containers (keeping for compatibility)
   private scenarioUI: {
     container?: Phaser.GameObjects.Container;
     background?: Phaser.GameObjects.Rectangle;
@@ -147,8 +73,24 @@ class GameScene extends Phaser.Scene {
     timer?: Phaser.GameObjects.Text;
     responseCount?: Phaser.GameObjects.Text;
   } = {};
-  private currentScenario: any = null;
-  private scenarioEndTime: number = 0;
+  private teamVotingUI: {
+    container?: Phaser.GameObjects.Container;
+    teamMarker?: Phaser.GameObjects.Arc;
+    idealMarker?: Phaser.GameObjects.Arc;
+  } = {};
+  private scoringUI: {
+    container?: Phaser.GameObjects.Container;
+    mentalStabilityBar?: Phaser.GameObjects.Rectangle;
+    socialReputationBar?: Phaser.GameObjects.Rectangle;
+    chaosBar?: Phaser.GameObjects.Rectangle;
+  } = {};
+  private gameState = {
+    mentalStability: 50,
+    socialReputation: 50,
+    chaos: 50,
+    round: 0,
+    totalRounds: 4
+  };
 
   constructor() {
     super({ key: 'GameScene' });
@@ -171,11 +113,11 @@ class GameScene extends Phaser.Scene {
     this.socket = await initializeSocket();
     this.socket.connect();
 
-    // Add background
+    // Add background that covers full screen
     this.add.rectangle(this.gameWidth / 2, this.gameHeight / 2, this.gameWidth, this.gameHeight, 0x0a0a0a);
     
-    // Create zones first (behind everything)
-    this.createZones();
+    // Create coordinate plane (replacing brain zones)
+    this.createCoordinatePlane();
     
     // Add grid
     this.createGrid();
@@ -192,7 +134,9 @@ class GameScene extends Phaser.Scene {
           name: this.currentPlayer.name,
           role: this.currentPlayer.role,
           x: this.gameWidth / 2,
-          y: this.gameHeight / 2
+          y: this.gameHeight / 2,
+          gameWidth: this.gameWidth,
+          gameHeight: this.gameHeight
         });
       }
     });
@@ -225,9 +169,23 @@ class GameScene extends Phaser.Scene {
     this.socket.on('scenario:response_count', (count: number) => {
       this.updateResponseCount(count);
     });
+    
+    this.socket.on('team:vote_update', (data: any) => {
+      this.handleTeamVoteUpdate(data);
+    });
+
+    this.socket.on('game:complete', (data: any) => {
+      this.handleGameComplete(data);
+    });
 
     // Create scenario UI
     this.createScenarioUI();
+    
+    // Create team voting visualization
+    this.createTeamVotingUI();
+
+    // Create team voting bar
+    this.createTeamVotingBar();
   }
 
   setupInput() {
@@ -245,90 +203,131 @@ class GameScene extends Phaser.Scene {
   }
 
   createGrid() {
+    // Grid is now part of createCoordinatePlane(), so this method can be simplified or removed
+    // The coordinate plane already includes the grid lines we need
+  }
+
+  createCoordinatePlane() {
     const graphics = this.add.graphics();
-    graphics.lineStyle(1, 0x333333, 0.3);
+    const centerX = this.gameWidth / 2;
+    const centerY = this.gameHeight / 2;
     
-    const gridSize = 40;
+    // Calculate emotional map dimensions
+    const margin = 60;
+    const mapWidth = this.gameWidth - (margin * 2);
+    const mapHeight = this.gameHeight - (margin * 2);
+    const mapLeft = margin;
+    const mapTop = margin;
     
-    // Vertical lines
-    for (let x = 0; x <= this.gameWidth; x += gridSize) {
-      graphics.moveTo(x, 0);
-      graphics.lineTo(x, this.gameHeight);
-    }
+    // Create a smooth 4-way gradient covering the entire emotional space
+    // This creates a gradient from each corner to the center
+    graphics.fillGradientStyle(
+      0x3B82F6,  // Top-left: Blue
+      0xEF4444,  // Top-right: Red  
+      0xF59E0B,  // Bottom-left: Gold
+      0x10B981,  // Bottom-right: Green
+      0.4        // Alpha
+    );
+    graphics.fillRect(mapLeft, mapTop, mapWidth, mapHeight);
     
-    // Horizontal lines
-    for (let y = 0; y <= this.gameHeight; y += gridSize) {
-      graphics.moveTo(0, y);
-      graphics.lineTo(this.gameWidth, y);
-    }
+    // Only draw the outer border, no internal lines
+    graphics.lineStyle(3, 0xffffff, 0.8);
+    graphics.strokeRect(mapLeft, mapTop, mapWidth, mapHeight);
     
-    graphics.strokePath();
+    // Create placeholder axis labels (will be updated when scenario starts)
+    this.updateAxisLabels();
+  }
+  
+  updateAxisLabels() {
+    // Clear existing labels
+    this.axisLabels.forEach(label => label.destroy());
+    this.axisLabels = [];
+    
+    const centerX = this.gameWidth / 2;
+    const centerY = this.gameHeight / 2;
+    const margin = 60;
+    const mapWidth = this.gameWidth - (margin * 2);
+    const mapHeight = this.gameHeight - (margin * 2);
+    const mapLeft = margin;
+    const mapTop = margin;
+    
+    // Use current axes or defaults
+    const axes = this.currentAxes || {
+      axis1: { negative: "Avoidance", positive: "Approach" },
+      axis2: { negative: "Vindictive", positive: "Empathetic" }
+    };
+    
+    // Add quadrant labels with dynamic axes
+    const topLeft = this.add.text(mapLeft + mapWidth * 0.25, mapTop + mapHeight * 0.25, 
+      `${axes.axis1.positive.toUpperCase()}\n+\n${axes.axis2.negative.toUpperCase()}`, {
+      fontSize: '14px', color: '#60A5FA', fontStyle: 'bold', align: 'center'
+    }).setOrigin(0.5);
+    
+    const topRight = this.add.text(centerX + mapWidth * 0.25, mapTop + mapHeight * 0.25, 
+      `${axes.axis1.negative.toUpperCase()}\n+\n${axes.axis2.negative.toUpperCase()}`, {
+      fontSize: '14px', color: '#F87171', fontStyle: 'bold', align: 'center'
+    }).setOrigin(0.5);
+    
+    const bottomLeft = this.add.text(mapLeft + mapWidth * 0.25, centerY + mapHeight * 0.25, 
+      `${axes.axis1.positive.toUpperCase()}\n+\n${axes.axis2.positive.toUpperCase()}`, {
+      fontSize: '14px', color: '#FBBF24', fontStyle: 'bold', align: 'center'
+    }).setOrigin(0.5);
+    
+    const bottomRight = this.add.text(centerX + mapWidth * 0.25, centerY + mapHeight * 0.25, 
+      `${axes.axis1.negative.toUpperCase()}\n+\n${axes.axis2.positive.toUpperCase()}`, {
+      fontSize: '14px', color: '#34D399', fontStyle: 'bold', align: 'center'
+    }).setOrigin(0.5);
+    
+    this.axisLabels = [topLeft, topRight, bottomLeft, bottomRight];
   }
 
-  createZones() {
-    zones.forEach(zone => {
-      // Create zone fill
-      const graphics = this.add.graphics();
-      graphics.fillStyle(zone.tint, 0.3); // 30% opacity for subtle tint
-      graphics.lineStyle(2, zone.color, 0.6);
-      
-      // Scale normalized coordinates to screen dimensions
-      const scaledPolygon = zone.polygon.map(point => ({
-        x: point.x * this.gameWidth,
-        y: point.y * this.gameHeight
-      }));
-      
-      // Draw the polygon
-      graphics.beginPath();
-      graphics.moveTo(scaledPolygon[0].x, scaledPolygon[0].y);
-      
-      for (let i = 1; i < scaledPolygon.length; i++) {
-        graphics.lineTo(scaledPolygon[i].x, scaledPolygon[i].y);
-      }
-      
-      graphics.closePath();
-      graphics.fillPath();
-      graphics.strokePath();
-      
-      // Add zone label at center
-      const centerX = scaledPolygon.reduce((sum, p) => sum + p.x, 0) / scaledPolygon.length;
-      const centerY = scaledPolygon.reduce((sum, p) => sum + p.y, 0) / scaledPolygon.length;
-      
-      const label = this.add.text(centerX, centerY, zone.name, {
-        fontSize: '18px',
-        color: `#${zone.color.toString(16).padStart(6, '0')}`,
-        align: 'center',
-        fontStyle: 'bold'
-      });
-      label.setOrigin(0.5);
-      label.setAlpha(0.7);
-    });
-  }
-
-  // Helper function to detect which zone a point is in
-  getZoneAtPosition(x: number, y: number): Zone | null {
-    // Convert to normalized coordinates
-    const normalizedX = x / this.gameWidth;
-    const normalizedY = y / this.gameHeight;
+  // Helper function to convert screen coordinates to emotional values
+  screenToEmotional(screenX: number, screenY: number): { axis1: number; axis2: number } {
+    const centerX = this.gameWidth / 2;
+    const centerY = this.gameHeight / 2;
+    const margin = 60;
+    const mapWidth = this.gameWidth - (margin * 2);
+    const mapHeight = this.gameHeight - (margin * 2);
     
-    for (const zone of zones) {
-      if (this.isPointInPolygon({ x: normalizedX, y: normalizedY }, zone.polygon)) {
-        return zone;
-      }
-    }
-    return null;
+    // Convert to emotional axes (-1 to +1)
+    // X-axis: Axis1 positive (-1) to Axis1 negative (+1)
+    const axis1 = -((screenX - centerX) / (mapWidth / 2));
+    // Y-axis: Axis2 negative (-1) to Axis2 positive (+1) 
+    const axis2 = ((screenY - centerY) / (mapHeight / 2));
+    
+    return { 
+      axis1: Math.max(-1, Math.min(1, axis1)), 
+      axis2: Math.max(-1, Math.min(1, axis2)) 
+    };
   }
 
-  // Point-in-polygon algorithm
-  isPointInPolygon(point: Point, polygon: Point[]): boolean {
-    let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      if (((polygon[i].y > point.y) !== (polygon[j].y > point.y)) &&
-          (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
-        inside = !inside;
-      }
+  // Helper function to convert emotional values to screen coordinates
+  emotionalToScreen(axis1: number, axis2: number): Point {
+    const centerX = this.gameWidth / 2;
+    const centerY = this.gameHeight / 2;
+    const margin = 60;
+    const mapWidth = this.gameWidth - (margin * 2);
+    const mapHeight = this.gameHeight - (margin * 2);
+    
+    const screenX = centerX - (axis1 * mapWidth / 2);
+    const screenY = centerY + (axis2 * mapHeight / 2);
+    
+    return { x: screenX, y: screenY };
+  }
+
+  // Get which quadrant a player is in
+  getEmotionalQuadrant(x: number, y: number): string {
+    const emotional = this.screenToEmotional(x, y);
+    
+    if (emotional.axis1 > 0 && emotional.axis2 < 0) {
+      return 'Axis1+ Axis2-';
+    } else if (emotional.axis1 < 0 && emotional.axis2 < 0) {
+      return 'Axis1- Axis2-';
+    } else if (emotional.axis1 > 0 && emotional.axis2 > 0) {
+      return 'Axis1+ Axis2+';
+    } else {
+      return 'Axis1- Axis2+';
     }
-    return inside;
   }
 
   update() {
@@ -368,21 +367,28 @@ class GameScene extends Phaser.Scene {
     let newX = currentPlayerData.x;
     let newY = currentPlayerData.y;
     const speed = 8; // Increased from 5 for faster movement
+    
+    // Movement boundaries respect coordinate plane margins
+    const margin = 60;
+    const minX = margin + 20;
+    const maxX = this.gameWidth - margin - 20;
+    const minY = margin + 20;
+    const maxY = this.gameHeight - margin - 20;
 
     if (this.cursors.left.isDown) {
-      newX = Math.max(20, newX - speed);
+      newX = Math.max(minX, newX - speed);
       moved = true;
     }
     if (this.cursors.right.isDown) {
-      newX = Math.min(this.gameWidth - 20, newX + speed);
+      newX = Math.min(maxX, newX + speed);
       moved = true;
     }
     if (this.cursors.up.isDown) {
-      newY = Math.max(20, newY - speed);
+      newY = Math.max(minY, newY - speed);
       moved = true;
     }
     if (this.cursors.down.isDown) {
-      newY = Math.min(this.gameHeight - 20, newY + speed);
+      newY = Math.min(maxY, newY + speed);
       moved = true;
     }
 
@@ -431,31 +437,16 @@ class GameScene extends Phaser.Scene {
         }
       }
 
-      // Check if player is in their matching zone
-      const currentZone = this.getZoneAtPosition(player.x, player.y);
-      const isInMatchingZone = currentZone && currentZone.name === player.role;
-
-      // Enhanced visual feedback for players in their matching zone
-      if (isInMatchingZone) {
-        neuron.setStrokeStyle(4, 0xffffff, 1); // Thicker white border
-        neuron.setScale(1.2); // Slightly larger
-        if ((neuron as any).nameText) {
-          (neuron as any).nameText.setStyle({ 
-            color: '#ffff00',
-            fontSize: '14px',
-            fontStyle: 'bold'
-          });
-        }
-      } else {
-        neuron.setScale(1.0); // Normal size
-        neuron.setStrokeStyle(2, 0xffffff);
-        if ((neuron as any).nameText) {
-          (neuron as any).nameText.setStyle({ 
-            color: '#ffffff',
-            fontSize: '12px',
-            fontStyle: 'normal'
-          });
-        }
+      // Since we removed zones, no special zone-based visual effects
+      // Keep normal styling for all players
+      neuron.setScale(1.0);
+      neuron.setStrokeStyle(2, 0xffffff);
+      if ((neuron as any).nameText) {
+        (neuron as any).nameText.setStyle({ 
+          color: '#ffffff',
+          fontSize: '12px',
+          fontStyle: 'normal'
+        });
       }
 
       // Highlight current player
@@ -532,35 +523,235 @@ class GameScene extends Phaser.Scene {
     this.currentScenario = scenario;
     this.scenarioEndTime = Date.now() + scenario.duration;
     
+    // Update axes for this scenario
+    if (scenario.axes) {
+      this.currentAxes = scenario.axes;
+      this.updateAxisLabels();
+    }
+    
+    if (this.scenarioUI.text) {
+      this.scenarioUI.text.setText(scenario.text);
+      console.log('Scenario UI text set to:', scenario.text);
+    } else {
+      console.log('ERROR: scenarioUI.text is null');
+    }
+    
+    // Make scenario UI visible
+    if (this.scenarioUI.container) {
+      this.scenarioUI.container.setVisible(true);
+      console.log('Scenario UI container made visible');
+    } else {
+      console.log('ERROR: scenarioUI.container is null');
+    }
+    
+    console.log('New scenario started:', scenario.text);
+    console.log('Dynamic axes:', scenario.axes);
+  }
+
+  handleCurrentScenario(scenario: any) {
+    this.currentScenario = scenario;
+    this.scenarioEndTime = Date.now() + scenario.timeLeft;
+    
+    // Update axes for this scenario
+    if (scenario.axes) {
+      this.currentAxes = scenario.axes;
+      this.updateAxisLabels();
+    }
+    
     if (this.scenarioUI.text) {
       this.scenarioUI.text.setText(scenario.text);
     }
     
+    // Make scenario UI visible
     if (this.scenarioUI.container) {
       this.scenarioUI.container.setVisible(true);
-    }
-    
-    this.updateResponseCount(0);
-    console.log('New scenario:', scenario.text);
-  }
-
-  handleCurrentScenario(scenario: any) {
-    if (scenario.timeLeft > 0) {
-      this.currentScenario = scenario;
-      this.scenarioEndTime = Date.now() + scenario.timeLeft;
-      
-      if (this.scenarioUI.text) {
-        this.scenarioUI.text.setText(scenario.text);
-      }
-      
-      if (this.scenarioUI.container) {
-        this.scenarioUI.container.setVisible(true);
-      }
     }
   }
 
   handleScenarioEnd(data: any) {
-    console.log('Scenario ended with', data.responses.length, 'responses');
+    this.currentScenario = null;
+    this.scenarioEndTime = 0;
+    
+    if (this.scenarioUI.text) {
+      this.scenarioUI.text.setText('Waiting for next scenario...');
+    }
+    
+    // Hide scenario UI temporarily
+    if (this.scenarioUI.container) {
+      this.scenarioUI.container.setVisible(false);
+    }
+    
+    // Show results with dynamic axis information
+    const teamResponse = data.teamResponse;
+    const idealResponse = data.idealResponse;
+    const axes = data.axes;
+    const reasoning = data.idealReasoning;
+    
+    if (teamResponse && idealResponse) {
+      // Use existing method but update it to work with dynamic axes
+      this.showTeamVotingResults(teamResponse, idealResponse);
+      
+      // Show accuracy and reasoning
+      const accuracyText = `Accuracy: ${data.accuracy.toFixed(1)}%`;
+      const reasoningText = reasoning ? `Ideal: ${reasoning}` : '';
+      
+      if (this.scenarioUI.responseCount) {
+        this.scenarioUI.responseCount.setText(`${accuracyText}\n${reasoningText}`);
+      }
+    }
+    
+    // Update game state meters
+    if (data.gameState) {
+      this.updateScoringUI(data.gameState);
+    }
+    
+    console.log('Scenario ended. Accuracy:', data.accuracy);
+    console.log('Ideal reasoning:', reasoning);
+  }
+
+  updateResponseCount(count: number) {
+    if (this.scenarioUI.responseCount) {
+      this.scenarioUI.responseCount.setText(`Responses: ${count}`);
+    }
+  }
+
+  // Create scoring meters UI
+  createScoringUI() {
+    this.scoringUI.container = this.add.container(this.gameWidth - 200, 20);
+    
+    // Background
+    const bg = this.add.rectangle(0, 0, 180, 120, 0x000000, 0.8);
+    bg.setStrokeStyle(2, 0xffffff, 0.6);
+    this.scoringUI.container.add(bg);
+    
+    // Title
+    const title = this.add.text(0, -45, 'GAME STATE', {
+      fontSize: '12px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      align: 'center'
+    });
+    title.setOrigin(0.5);
+    this.scoringUI.container.add(title);
+    
+    // Mental Stability
+    const mentalLabel = this.add.text(-70, -25, 'Mental:', {
+      fontSize: '10px',
+      color: '#ffffff'
+    });
+    this.scoringUI.container.add(mentalLabel);
+    
+    this.scoringUI.mentalStabilityBar = this.add.rectangle(10, -25, 100, 8, 0x10B981);
+    this.scoringUI.container.add(this.scoringUI.mentalStabilityBar);
+    
+    // Social Reputation
+    const socialLabel = this.add.text(-70, -5, 'Social:', {
+      fontSize: '10px',
+      color: '#ffffff'
+    });
+    this.scoringUI.container.add(socialLabel);
+    
+    this.scoringUI.socialReputationBar = this.add.rectangle(10, -5, 100, 8, 0x3B82F6);
+    this.scoringUI.container.add(this.scoringUI.socialReputationBar);
+    
+    // Chaos
+    const chaosLabel = this.add.text(-70, 15, 'Chaos:', {
+      fontSize: '10px',
+      color: '#ffffff'
+    });
+    this.scoringUI.container.add(chaosLabel);
+    
+    this.scoringUI.chaosBar = this.add.rectangle(10, 15, 100, 8, 0xEF4444);
+    this.scoringUI.container.add(this.scoringUI.chaosBar);
+    
+    // Round counter
+    const roundText = this.add.text(0, 35, `Round ${this.gameState.round}/${this.gameState.totalRounds}`, {
+      fontSize: '10px',
+      color: '#ffffff',
+      align: 'center'
+    });
+    roundText.setOrigin(0.5);
+    this.scoringUI.container.add(roundText);
+  }
+
+  // Create team voting visualization
+  createTeamVotingUI() {
+    this.teamVotingUI.container = this.add.container(0, 0);
+    this.teamVotingUI.container.setVisible(false);
+    
+    // Team position marker (average of all players)
+    this.teamVotingUI.teamMarker = this.add.circle(0, 0, 12, 0xFFFF00, 0.8);
+    this.teamVotingUI.teamMarker.setStrokeStyle(3, 0xFFFFFF);
+    this.teamVotingUI.container.add(this.teamVotingUI.teamMarker);
+    
+    // Ideal position marker (hidden until scenario ends)
+    this.teamVotingUI.idealMarker = this.add.circle(0, 0, 8, 0x00FF00, 0.8);
+    this.teamVotingUI.idealMarker.setStrokeStyle(2, 0xFFFFFF);
+    this.teamVotingUI.idealMarker.setVisible(false);
+    this.teamVotingUI.container.add(this.teamVotingUI.idealMarker);
+  }
+
+  // Update scoring meters
+  updateScoringUI(gameState: any) {
+    this.gameState = { ...this.gameState, ...gameState };
+    
+    if (this.scoringUI.mentalStabilityBar) {
+      const width = (this.gameState.mentalStability / 100) * 100;
+      this.scoringUI.mentalStabilityBar.setSize(width, 8);
+      this.scoringUI.mentalStabilityBar.setPosition(-50 + width/2, -25);
+    }
+    
+    if (this.scoringUI.socialReputationBar) {
+      const width = (this.gameState.socialReputation / 100) * 100;
+      this.scoringUI.socialReputationBar.setSize(width, 8);
+      this.scoringUI.socialReputationBar.setPosition(-50 + width/2, -5);
+    }
+    
+    if (this.scoringUI.chaosBar) {
+      const width = (this.gameState.chaos / 100) * 100;
+      this.scoringUI.chaosBar.setSize(width, 8);
+      this.scoringUI.chaosBar.setPosition(-50 + width/2, 15);
+    }
+  }
+
+  // Show team voting results
+  showTeamVotingResults(teamResponse: any, idealResponse: any) {
+    if (!this.teamVotingUI.container || !this.teamVotingUI.teamMarker || !this.teamVotingUI.idealMarker) {
+      return;
+    }
+    
+    this.teamVotingUI.container.setVisible(true);
+    
+    // Position team marker - handle both old and new response formats
+    const teamAxis1 = teamResponse.axis1 !== undefined ? teamResponse.axis1 : teamResponse.approach;
+    const teamAxis2 = teamResponse.axis2 !== undefined ? teamResponse.axis2 : teamResponse.empathy;
+    const teamScreen = this.emotionalToScreen(teamAxis1, teamAxis2);
+    if (this.teamVotingUI.teamMarker) {
+      this.teamVotingUI.teamMarker.setPosition(teamScreen.x, teamScreen.y);
+    }
+    
+    // Position and show ideal marker - handle both old and new response formats
+    const idealAxis1 = idealResponse.axis1 !== undefined ? idealResponse.axis1 : idealResponse.approach;
+    const idealAxis2 = idealResponse.axis2 !== undefined ? idealResponse.axis2 : idealResponse.empathy;
+    const idealScreen = this.emotionalToScreen(idealAxis1, idealAxis2);
+    if (this.teamVotingUI.idealMarker) {
+      this.teamVotingUI.idealMarker.setPosition(idealScreen.x, idealScreen.y);
+      this.teamVotingUI.idealMarker.setVisible(true);
+    }
+    
+    // Hide markers after 5 seconds
+    this.time.delayedCall(5000, () => {
+      if (this.teamVotingUI.container) {
+        this.teamVotingUI.container.setVisible(false);
+      }
+      if (this.teamVotingUI.idealMarker) {
+        this.teamVotingUI.idealMarker.setVisible(false);
+      }
+    });
+  }
+
+  handleGameComplete(data: any) {
+    console.log('Game completed with', data.responses.length, 'responses');
     
     if (this.scenarioUI.container) {
       this.scenarioUI.container.setVisible(false);
@@ -570,9 +761,119 @@ class GameScene extends Phaser.Scene {
     this.scenarioEndTime = 0;
   }
 
-  updateResponseCount(count: number) {
-    if (this.scenarioUI.responseCount) {
-      this.scenarioUI.responseCount.setText(`Responses: ${count}`);
+  createTeamVotingBar() {
+    // Create a 2D mini-map instead of 1D bar
+    const miniMapSize = 120;
+    const miniMapX = (this.gameWidth - miniMapSize) / 2; // Center horizontally
+    const miniMapY = this.gameHeight - miniMapSize - 40; // Bottom with margin
+    
+    // Create background graphics for the mini-map
+    this.teamVoteBar = this.add.graphics();
+    
+    // Create smooth 4-way gradient to match main map
+    this.teamVoteBar.fillGradientStyle(
+      0x3B82F6,  // Top-left: Blue
+      0xEF4444,  // Top-right: Red  
+      0xF59E0B,  // Bottom-left: Gold
+      0x10B981,  // Bottom-right: Green
+      0.7        // Slightly more opaque than main map
+    );
+    this.teamVoteBar.fillRect(miniMapX, miniMapY, miniMapSize, miniMapSize);
+    
+    // Draw border only, no internal lines
+    this.teamVoteBar.lineStyle(2, 0xffffff, 0.8);
+    this.teamVoteBar.strokeRect(miniMapX, miniMapY, miniMapSize, miniMapSize);
+    
+    // Create team vote indicator (larger and more visible)
+    this.teamVoteIndicator = this.add.circle(
+      miniMapX + miniMapSize / 2, 
+      miniMapY + miniMapSize / 2, 
+      8, 
+      0xFFFFFF
+    );
+    this.teamVoteIndicator.setStrokeStyle(2, 0x000000);
+    
+    // Add title above the mini-map
+    this.add.text(miniMapX + miniMapSize / 2, miniMapY - 25, 'Team Average', {
+      fontSize: '14px', color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    
+    // Add axis labels around the mini-map
+    this.add.text(miniMapX - 15, miniMapY + miniMapSize / 2, 'A1+', {
+      fontSize: '10px', color: '#ffffff'
+    }).setOrigin(1, 0.5);
+    
+    this.add.text(miniMapX + miniMapSize + 15, miniMapY + miniMapSize / 2, 'A1-', {
+      fontSize: '10px', color: '#ffffff'
+    }).setOrigin(0, 0.5);
+    
+    this.add.text(miniMapX + miniMapSize / 2, miniMapY - 10, 'A2-', {
+      fontSize: '10px', color: '#ffffff'
+    }).setOrigin(0.5, 1);
+    
+    this.add.text(miniMapX + miniMapSize / 2, miniMapY + miniMapSize + 10, 'A2+', {
+      fontSize: '10px', color: '#ffffff'
+    }).setOrigin(0.5, 0);
+  }
+  
+  updateTeamVotingBar() {
+    if (!this.teamVoteIndicator) return;
+    
+    const miniMapSize = 120;
+    const miniMapX = (this.gameWidth - miniMapSize) / 2;
+    const miniMapY = this.gameHeight - miniMapSize - 40;
+    
+    // Convert team vote to mini-map position
+    // axis1: -1 (left) to +1 (right)
+    // axis2: -1 (top) to +1 (bottom)
+    const normalizedX = (this.currentTeamVote.axis1 + 1) / 2; // Convert -1,1 to 0,1
+    const normalizedY = (this.currentTeamVote.axis2 + 1) / 2; // Convert -1,1 to 0,1
+    
+    const indicatorX = miniMapX + (normalizedX * miniMapSize);
+    const indicatorY = miniMapY + (normalizedY * miniMapSize);
+    
+    console.log(`Mini-map update: vote(${this.currentTeamVote.axis1.toFixed(2)}, ${this.currentTeamVote.axis2.toFixed(2)}) -> pos(${indicatorX.toFixed(0)}, ${indicatorY.toFixed(0)})`);
+    
+    this.teamVoteIndicator.setPosition(indicatorX, indicatorY);
+    
+    // Update color based on dominant quadrant but with more nuance
+    const intensity = Math.sqrt(
+      this.currentTeamVote.axis1 * this.currentTeamVote.axis1 + 
+      this.currentTeamVote.axis2 * this.currentTeamVote.axis2
+    );
+    
+    let color = 0xFFFFFF; // Default white for center
+    if (intensity > 0.3) { // Only change color if there's significant positioning
+      if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 < 0) {
+        color = 0x60A5FA; // Blue
+      } else if (this.currentTeamVote.axis1 < 0 && this.currentTeamVote.axis2 < 0) {
+        color = 0xF87171; // Red
+      } else if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 > 0) {
+        color = 0xFBBF24; // Gold
+      } else if (this.currentTeamVote.axis1 < 0 && this.currentTeamVote.axis2 > 0) {
+        color = 0x34D399; // Green
+      }
+    }
+    
+    this.teamVoteIndicator.setFillStyle(color);
+    
+    // Make the indicator pulse slightly to draw attention
+    this.teamVoteIndicator.setScale(1.0 + Math.sin(Date.now() / 500) * 0.1);
+  }
+
+  handleTeamVoteUpdate(data: any) {
+    console.log('Team vote update received:', data);
+    
+    if (data.teamVote) {
+      console.log('Updating team vote to:', data.teamVote);
+      this.currentTeamVote = data.teamVote;
+      this.updateTeamVotingBar();
+    }
+    
+    // Update axes if they've changed
+    if (data.axes && JSON.stringify(data.axes) !== JSON.stringify(this.currentAxes)) {
+      this.currentAxes = data.axes;
+      this.updateAxisLabels();
     }
   }
 }
@@ -620,6 +921,13 @@ export default function GameCanvas({ player }: GameCanvasProps) {
 
       socket.on('scenario:response_count', (count: number) => {
         setResponseCount(count);
+      });
+
+      socket.on('game:complete', () => {
+        setCurrentScenario(null);
+        setTimeLeft(0);
+        setHasResponded(false);
+        setResponse('');
       });
 
       return socket;

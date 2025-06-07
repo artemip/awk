@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 
-const roles = ['Logic', 'Emotion', 'Memory', 'Impulse', 'Anxiety', 'Instinct'];
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -16,11 +14,9 @@ export async function POST(request: NextRequest) {
     }
 
     const playerId = uuidv4();
-    const role = roles[Math.floor(Math.random() * roles.length)];
 
     return NextResponse.json({
-      playerId,
-      role
+      playerId
     });
   } catch (error) {
     return NextResponse.json(
