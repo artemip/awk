@@ -59,14 +59,14 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-8">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-5xl font-bold text-white text-center mb-8 bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
-          AWK Neural Network
-        </h1>
-        
-        {!gameStarted ? (
+    <main className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+      {!gameStarted ? (
+        <div className="min-h-screen flex items-center justify-center p-8">
           <div className="max-w-md mx-auto">
+            <h1 className="text-5xl font-bold text-white text-center mb-8 bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
+              AWK Neural Network
+            </h1>
+            
             <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
               <h2 className="text-2xl font-semibold text-white mb-6 text-center">Join the Network</h2>
               
@@ -100,35 +100,37 @@ export default function Home() {
               </div>
             </div>
           </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20">
-              <div className="flex items-center space-x-4">
-                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-                <div>
-                  <p className="text-white font-semibold">{currentPlayer?.name}</p>
-                  <p className="text-gray-300 text-sm">Role: {currentPlayer?.role}</p>
-                </div>
+        </div>
+      ) : (
+        <div className="relative w-full h-screen overflow-hidden">
+          {/* Floating game title */}
+          <div className="absolute top-4 left-4 z-10">
+            <h1 className="text-lg font-bold text-white/80 bg-black/30 backdrop-blur-sm px-3 py-1 rounded-lg border border-white/20">
+              AWK Neural Network
+            </h1>
+          </div>
+          
+          {/* Floating player info */}
+          <div className="absolute top-4 right-4 z-10">
+            <div className="flex items-center space-x-3 bg-black/30 backdrop-blur-sm rounded-lg px-3 py-2 border border-white/20">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <div>
+                <p className="text-white font-medium text-sm">{currentPlayer?.name}</p>
+                <p className="text-gray-300 text-xs">Role: {currentPlayer?.role}</p>
               </div>
-              
               <button
                 onClick={handleLeaveGame}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+                className="ml-2 px-2 py-1 bg-red-600/80 hover:bg-red-600 text-white text-xs font-medium rounded transition-colors duration-200"
               >
-                Leave Game
+                Leave
               </button>
             </div>
-            
-            <div className="bg-white/5 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden">
-              <GameCanvas player={currentPlayer} />
-            </div>
-            
-            <div className="text-center text-sm text-gray-400">
-              Use arrow keys to move your neuron • Press SPACE to send signals
-            </div>
           </div>
-        )}
-      </div>
+          
+          {/* Full screen game */}
+          <GameCanvas player={currentPlayer} />
+        </div>
+      )}
     </main>
   );
 }
