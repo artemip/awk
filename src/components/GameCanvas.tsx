@@ -59,11 +59,15 @@ class GameScene extends Phaser.Scene {
   private axisLabels: Phaser.GameObjects.Text[] = [];
   private teamVoteBar: Phaser.GameObjects.Graphics | null = null;
   private teamVoteIndicator: Phaser.GameObjects.Arc | null = null;
+  private miniMapAxisLabels: Phaser.GameObjects.Text[] = [];
   private currentTeamVote: { axis1: number; axis2: number } = { axis1: 0, axis2: 0 };
   
   // Scenario tracking
   private currentScenario: any = null;
   private scenarioEndTime: number = 0;
+  private isLoadingScenario: boolean = false;
+  private isLoadingScore: boolean = false;
+  private currentScore: any = null;
   
   // Legacy UI containers (keeping for compatibility)
   private scenarioUI: {
@@ -72,6 +76,7 @@ class GameScene extends Phaser.Scene {
     text?: Phaser.GameObjects.Text;
     timer?: Phaser.GameObjects.Text;
     responseCount?: Phaser.GameObjects.Text;
+    loadingText?: Phaser.GameObjects.Text;
   } = {};
   private teamVotingUI: {
     container?: Phaser.GameObjects.Container;
@@ -91,6 +96,18 @@ class GameScene extends Phaser.Scene {
     round: 0,
     totalRounds: 4
   };
+  private scoreUI: {
+    container?: Phaser.GameObjects.Container;
+    background?: Phaser.GameObjects.Rectangle;
+    miniMap?: Phaser.GameObjects.Graphics;
+    teamMarker?: Phaser.GameObjects.Arc;
+    idealMarker?: Phaser.GameObjects.Arc;
+    whatYouShouldHaveText?: Phaser.GameObjects.Text;
+    whatYouActuallyDidText?: Phaser.GameObjects.Text;
+    loadingText?: Phaser.GameObjects.Text;
+    accuracyText?: Phaser.GameObjects.Text;
+    miniMapAxisLabels?: Phaser.GameObjects.Text[];
+  } = {};
 
   constructor() {
     super({ key: 'GameScene' });
@@ -104,14 +121,10 @@ class GameScene extends Phaser.Scene {
     // No assets needed for simple circles
   }
 
-  async create() {
+  create() {
     // Get screen dimensions
     this.gameWidth = this.cameras.main.width;
     this.gameHeight = this.cameras.main.height;
-
-    // Set up socket connection
-    this.socket = await initializeSocket();
-    this.socket.connect();
 
     // Add background that covers full screen
     this.add.rectangle(this.gameWidth / 2, this.gameHeight / 2, this.gameWidth, this.gameHeight, 0x0a0a0a);
@@ -125,67 +138,95 @@ class GameScene extends Phaser.Scene {
     // Set up input after the scene is fully created
     this.setupInput();
 
-    // Socket event listeners
-    this.socket.on(socketEvents.CONNECT, () => {
-      console.log('Connected to server');
-      if (this.currentPlayer) {
-        this.socket.emit(socketEvents.PLAYER_JOIN, {
-          playerId: this.currentPlayer.playerId,
-          name: this.currentPlayer.name,
-          role: this.currentPlayer.role,
-          x: this.gameWidth / 2,
-          y: this.gameHeight / 2,
-          gameWidth: this.gameWidth,
-          gameHeight: this.gameHeight
-        });
-      }
-    });
-
-    this.socket.on(socketEvents.PLAYER_UPDATE, (players: GamePlayer[]) => {
-      this.updatePlayers(players);
-    });
-
-    this.socket.on(socketEvents.PLAYER_LEAVE, (playerId: string) => {
-      this.removePlayer(playerId);
-    });
-
-    this.socket.on(socketEvents.DISCONNECT, () => {
-      console.log('Disconnected from server');
-    });
-
-    // Scenario event listeners
-    this.socket.on('scenario:new', (scenario: any) => {
-      this.handleNewScenario(scenario);
-    });
-
-    this.socket.on('scenario:current', (scenario: any) => {
-      this.handleCurrentScenario(scenario);
-    });
-
-    this.socket.on('scenario:end', (data: any) => {
-      this.handleScenarioEnd(data);
-    });
-
-    this.socket.on('scenario:response_count', (count: number) => {
-      this.updateResponseCount(count);
-    });
-    
-    this.socket.on('team:vote_update', (data: any) => {
-      this.handleTeamVoteUpdate(data);
-    });
-
-    this.socket.on('game:complete', (data: any) => {
-      this.handleGameComplete(data);
-    });
+    // Set up socket connection after scene is ready
+    this.initializeSocketConnection();
 
     // Create scenario UI
     this.createScenarioUI();
+    
+    // Create score UI
+    this.createScoreUI();
     
     // Create team voting visualization
     this.createTeamVotingUI();
 
     // Create team voting bar
     this.createTeamVotingBar();
+  }
+
+  async initializeSocketConnection() {
+    try {
+      // Set up socket connection
+      this.socket = await initializeSocket();
+      this.socket.connect();
+
+      // Socket event listeners
+      this.socket.on(socketEvents.CONNECT, () => {
+        console.log('Connected to server');
+        if (this.currentPlayer) {
+          this.socket.emit(socketEvents.PLAYER_JOIN, {
+            playerId: this.currentPlayer.playerId,
+            name: this.currentPlayer.name,
+            role: this.currentPlayer.role,
+            x: this.gameWidth / 2,
+            y: this.gameHeight / 2,
+            gameWidth: this.gameWidth,
+            gameHeight: this.gameHeight
+          });
+        }
+      });
+
+      this.socket.on(socketEvents.PLAYER_UPDATE, (players: GamePlayer[]) => {
+        this.updatePlayers(players);
+      });
+
+      this.socket.on(socketEvents.PLAYER_LEAVE, (playerId: string) => {
+        this.removePlayer(playerId);
+      });
+
+      this.socket.on(socketEvents.DISCONNECT, () => {
+        console.log('Disconnected from server');
+      });
+
+      // Scenario event listeners
+      this.socket.on('scenario:new', (scenario: any) => {
+        this.handleNewScenario(scenario);
+      });
+
+      this.socket.on('scenario:loading', () => {
+        this.handleScenarioLoading();
+      });
+
+      this.socket.on('scenario:current', (scenario: any) => {
+        this.handleCurrentScenario(scenario);
+      });
+
+      this.socket.on('scenario:end', (data: any) => {
+        this.handleScenarioEnd(data);
+      });
+
+      this.socket.on('score:loading', () => {
+        this.handleScoreLoading();
+      });
+
+      this.socket.on('score:display', (data: any) => {
+        this.handleScoreDisplay(data);
+      });
+
+      this.socket.on('scenario:response_count', (count: number) => {
+        this.updateResponseCount(count);
+      });
+      
+      this.socket.on('team:vote_update', (data: any) => {
+        this.handleTeamVoteUpdate(data);
+      });
+
+      this.socket.on('game:complete', (data: any) => {
+        this.handleGameComplete(data);
+      });
+    } catch (error) {
+      console.error('Failed to initialize socket connection:', error);
+    }
   }
 
   setupInput() {
@@ -208,6 +249,9 @@ class GameScene extends Phaser.Scene {
   }
 
   createCoordinatePlane() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
+    
     const graphics = this.add.graphics();
     const centerX = this.gameWidth / 2;
     const centerY = this.gameHeight / 2;
@@ -239,6 +283,9 @@ class GameScene extends Phaser.Scene {
   }
   
   updateAxisLabels() {
+    // Don't update if scene isn't ready
+    if (!this.add) return;
+    
     // Clear existing labels
     this.axisLabels.forEach(label => label.destroy());
     this.axisLabels = [];
@@ -251,7 +298,34 @@ class GameScene extends Phaser.Scene {
     const mapLeft = margin;
     const mapTop = margin;
     
-    // Use current axes or defaults
+    // Handle loading state - show loading indicators instead of defaults
+    if (this.isLoadingScenario && !this.currentAxes) {
+      // Show loading indicators in each quadrant
+      const loadingText = '🔄\nLoading...';
+      const loadingStyle = {
+        fontSize: '12px', 
+        color: '#888888', 
+        fontStyle: 'italic', 
+        align: 'center'
+      };
+      
+      const topLeft = this.add.text(mapLeft + mapWidth * 0.25, mapTop + mapHeight * 0.25, 
+        loadingText, loadingStyle).setOrigin(0.5);
+      
+      const topRight = this.add.text(centerX + mapWidth * 0.25, mapTop + mapHeight * 0.25, 
+        loadingText, loadingStyle).setOrigin(0.5);
+      
+      const bottomLeft = this.add.text(mapLeft + mapWidth * 0.25, centerY + mapHeight * 0.25, 
+        loadingText, loadingStyle).setOrigin(0.5);
+      
+      const bottomRight = this.add.text(centerX + mapWidth * 0.25, centerY + mapHeight * 0.25, 
+        loadingText, loadingStyle).setOrigin(0.5);
+      
+      this.axisLabels = [topLeft, topRight, bottomLeft, bottomRight];
+      return;
+    }
+    
+    // Use current axes or defaults (only when not loading)
     const axes = this.currentAxes || {
       axis1: { negative: "Avoidance", positive: "Approach" },
       axis2: { negative: "Vindictive", positive: "Empathetic" }
@@ -403,6 +477,9 @@ class GameScene extends Phaser.Scene {
   }
 
   updatePlayers(players: GamePlayer[]) {
+    // Don't update if scene isn't ready
+    if (!this.add) return;
+    
     // Update game data
     players.forEach(player => {
       this.gameData.set(player.id, player);
@@ -480,27 +557,31 @@ class GameScene extends Phaser.Scene {
 
   // Scenario UI Management
   createScenarioUI() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
+    
     // Create scenario container (initially hidden)
-    this.scenarioUI.container = this.add.container(this.gameWidth / 2, 80);
+    this.scenarioUI.container = this.add.container(this.gameWidth / 2, 100);
     this.scenarioUI.container.setVisible(false);
 
-    // Background
-    this.scenarioUI.background = this.add.rectangle(0, 0, this.gameWidth * 0.95, 120, 0x000000, 0.9);
+    // Background (larger to accommodate more text)
+    this.scenarioUI.background = this.add.rectangle(0, 0, this.gameWidth * 0.95, 160, 0x000000, 0.9);
     this.scenarioUI.background.setStrokeStyle(2, 0xffffff, 0.8);
     this.scenarioUI.container.add(this.scenarioUI.background);
 
-    // Scenario text
-    this.scenarioUI.text = this.add.text(0, -20, '', {
-      fontSize: '18px',
+    // Scenario text (adjusted for longer content)
+    this.scenarioUI.text = this.add.text(0, -35, '', {
+      fontSize: '16px',
       color: '#ffffff',
       align: 'center',
-      wordWrap: { width: this.gameWidth * 0.9 }
+      wordWrap: { width: this.gameWidth * 0.88 },
+      lineSpacing: 4
     });
     this.scenarioUI.text.setOrigin(0.5);
     this.scenarioUI.container.add(this.scenarioUI.text);
 
     // Timer
-    this.scenarioUI.timer = this.add.text(0, 25, '', {
+    this.scenarioUI.timer = this.add.text(0, 35, '', {
       fontSize: '20px',
       color: '#ffff00',
       align: 'center',
@@ -510,30 +591,91 @@ class GameScene extends Phaser.Scene {
     this.scenarioUI.container.add(this.scenarioUI.timer);
 
     // Response count
-    this.scenarioUI.responseCount = this.add.text(0, 45, '', {
+    this.scenarioUI.responseCount = this.add.text(0, 55, '', {
       fontSize: '12px',
       color: '#00ff00',
       align: 'center'
     });
     this.scenarioUI.responseCount.setOrigin(0.5);
     this.scenarioUI.container.add(this.scenarioUI.responseCount);
+
+    // Loading text
+    this.scenarioUI.loadingText = this.add.text(0, 75, '', {
+      fontSize: '12px',
+      color: '#ffffff',
+      align: 'center'
+    });
+    this.scenarioUI.loadingText.setOrigin(0.5);
+    this.scenarioUI.container.add(this.scenarioUI.loadingText);
+  }
+
+  handleScenarioLoading() {
+    this.isLoadingScenario = true;
+    this.currentScenario = null;
+    this.scenarioEndTime = 0;
+    
+    // Hide existing scenario content
+    if (this.scenarioUI.text) {
+      this.scenarioUI.text.setVisible(false);
+    }
+    if (this.scenarioUI.timer) {
+      this.scenarioUI.timer.setVisible(false);
+    }
+    if (this.scenarioUI.responseCount) {
+      this.scenarioUI.responseCount.setVisible(false);
+    }
+    
+    // Show loading indicator
+    if (this.scenarioUI.loadingText) {
+      this.scenarioUI.loadingText.setText('🧠 Generating new scenario...\nThis may take a moment');
+      this.scenarioUI.loadingText.setVisible(true);
+    }
+    
+    // Clear current axes - don't show defaults during loading
+    this.currentAxes = null;
+    this.updateAxisLabels();
+    this.createMiniMapAxisLabels();
+    
+    // Make scenario UI visible
+    if (this.scenarioUI.container) {
+      this.scenarioUI.container.setVisible(true);
+    }
+    
+    console.log('Scenario loading started');
   }
 
   handleNewScenario(scenario: any) {
+    this.isLoadingScenario = false;
     this.currentScenario = scenario;
     this.scenarioEndTime = Date.now() + scenario.duration;
+    
+    // Hide loading indicator
+    if (this.scenarioUI.loadingText) {
+      this.scenarioUI.loadingText.setVisible(false);
+    }
     
     // Update axes for this scenario
     if (scenario.axes) {
       this.currentAxes = scenario.axes;
       this.updateAxisLabels();
+      this.createMiniMapAxisLabels();
     }
     
+    // Show scenario content
     if (this.scenarioUI.text) {
       this.scenarioUI.text.setText(scenario.text);
+      this.scenarioUI.text.setVisible(true);
       console.log('Scenario UI text set to:', scenario.text);
     } else {
       console.log('ERROR: scenarioUI.text is null');
+    }
+    
+    // Show timer and response count
+    if (this.scenarioUI.timer) {
+      this.scenarioUI.timer.setVisible(true);
+    }
+    if (this.scenarioUI.responseCount) {
+      this.scenarioUI.responseCount.setVisible(true);
     }
     
     // Make scenario UI visible
@@ -544,22 +686,46 @@ class GameScene extends Phaser.Scene {
       console.log('ERROR: scenarioUI.container is null');
     }
     
+    // Show feedback about LLM usage
+    if (scenario.usedFallback) {
+      console.log('Scenario uses fallback content');
+    } else {
+      console.log('Scenario generated by LLM');
+    }
+    
     console.log('New scenario started:', scenario.text);
     console.log('Dynamic axes:', scenario.axes);
   }
 
   handleCurrentScenario(scenario: any) {
+    this.isLoadingScenario = false;
     this.currentScenario = scenario;
     this.scenarioEndTime = Date.now() + scenario.timeLeft;
+    
+    // Hide loading indicator
+    if (this.scenarioUI.loadingText) {
+      this.scenarioUI.loadingText.setVisible(false);
+    }
     
     // Update axes for this scenario
     if (scenario.axes) {
       this.currentAxes = scenario.axes;
       this.updateAxisLabels();
+      this.createMiniMapAxisLabels();
     }
     
+    // Show scenario content
     if (this.scenarioUI.text) {
       this.scenarioUI.text.setText(scenario.text);
+      this.scenarioUI.text.setVisible(true);
+    }
+    
+    // Show timer and response count
+    if (this.scenarioUI.timer) {
+      this.scenarioUI.timer.setVisible(true);
+    }
+    if (this.scenarioUI.responseCount) {
+      this.scenarioUI.responseCount.setVisible(true);
     }
     
     // Make scenario UI visible
@@ -572,41 +738,10 @@ class GameScene extends Phaser.Scene {
     this.currentScenario = null;
     this.scenarioEndTime = 0;
     
-    if (this.scenarioUI.text) {
-      this.scenarioUI.text.setText('Waiting for next scenario...');
-    }
+    // The old scenario end handling is now replaced by the score system
+    // This method is kept for backward compatibility but does minimal work
     
-    // Hide scenario UI temporarily
-    if (this.scenarioUI.container) {
-      this.scenarioUI.container.setVisible(false);
-    }
-    
-    // Show results with dynamic axis information
-    const teamResponse = data.teamResponse;
-    const idealResponse = data.idealResponse;
-    const axes = data.axes;
-    const reasoning = data.idealReasoning;
-    
-    if (teamResponse && idealResponse) {
-      // Use existing method but update it to work with dynamic axes
-      this.showTeamVotingResults(teamResponse, idealResponse);
-      
-      // Show accuracy and reasoning
-      const accuracyText = `Accuracy: ${data.accuracy.toFixed(1)}%`;
-      const reasoningText = reasoning ? `Ideal: ${reasoning}` : '';
-      
-      if (this.scenarioUI.responseCount) {
-        this.scenarioUI.responseCount.setText(`${accuracyText}\n${reasoningText}`);
-      }
-    }
-    
-    // Update game state meters
-    if (data.gameState) {
-      this.updateScoringUI(data.gameState);
-    }
-    
-    console.log('Scenario ended. Accuracy:', data.accuracy);
-    console.log('Ideal reasoning:', reasoning);
+    console.log('Scenario ended, score system will take over');
   }
 
   updateResponseCount(count: number) {
@@ -676,6 +811,9 @@ class GameScene extends Phaser.Scene {
 
   // Create team voting visualization
   createTeamVotingUI() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
+    
     this.teamVotingUI.container = this.add.container(0, 0);
     this.teamVotingUI.container.setVisible(false);
     
@@ -762,6 +900,9 @@ class GameScene extends Phaser.Scene {
   }
 
   createTeamVotingBar() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
+    
     // Create a 2D mini-map instead of 1D bar
     const miniMapSize = 120;
     const miniMapX = (this.gameWidth - miniMapSize) / 2; // Center horizontally
@@ -798,22 +939,56 @@ class GameScene extends Phaser.Scene {
       fontSize: '14px', color: '#ffffff', fontStyle: 'bold'
     }).setOrigin(0.5);
     
-    // Add axis labels around the mini-map
-    this.add.text(miniMapX - 15, miniMapY + miniMapSize / 2, 'A1+', {
-      fontSize: '10px', color: '#ffffff'
-    }).setOrigin(1, 0.5);
+    // Create dynamic axis labels that can be updated
+    this.createMiniMapAxisLabels();
+  }
+  
+  createMiniMapAxisLabels() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
     
-    this.add.text(miniMapX + miniMapSize + 15, miniMapY + miniMapSize / 2, 'A1-', {
-      fontSize: '10px', color: '#ffffff'
-    }).setOrigin(0, 0.5);
+    // Clear existing mini map labels
+    this.miniMapAxisLabels.forEach(label => label.destroy());
+    this.miniMapAxisLabels = [];
     
-    this.add.text(miniMapX + miniMapSize / 2, miniMapY - 10, 'A2-', {
-      fontSize: '10px', color: '#ffffff'
-    }).setOrigin(0.5, 1);
+    const miniMapX = this.gameWidth - 150;
+    const miniMapY = 200;
+    const miniMapSize = 100;
     
-    this.add.text(miniMapX + miniMapSize / 2, miniMapY + miniMapSize + 10, 'A2+', {
-      fontSize: '10px', color: '#ffffff'
-    }).setOrigin(0.5, 0);
+    // Handle loading state for mini map labels
+    if (this.isLoadingScenario && !this.currentAxes) {
+      // Show loading text on mini map
+      const loadingLabel = this.add.text(miniMapX, miniMapY + miniMapSize + 20, 
+        'Loading axes...', {
+        fontSize: '10px', 
+        color: '#888888', 
+        fontStyle: 'italic',
+        align: 'center'
+      }).setOrigin(0.5);
+      
+      this.miniMapAxisLabels = [loadingLabel];
+      return;
+    }
+    
+    // Use current axes or defaults
+    const axes = this.currentAxes || {
+      axis1: { negative: "Avoidance", positive: "Approach" },
+      axis2: { negative: "Vindictive", positive: "Empathetic" }
+    };
+    
+    // Horizontal axis label (bottom)
+    const horizontalLabel = this.add.text(miniMapX, miniMapY + miniMapSize + 15, 
+      `${axes.axis1.negative} ← → ${axes.axis1.positive}`, {
+      fontSize: '8px', color: '#ffffff', align: 'center'
+    }).setOrigin(0.5);
+    
+    // Vertical axis label (right side, rotated)
+    const verticalLabel = this.add.text(miniMapX + miniMapSize + 20, miniMapY, 
+      `${axes.axis2.negative} ↑ ↓ ${axes.axis2.positive}`, {
+      fontSize: '8px', color: '#ffffff', align: 'center'
+    }).setOrigin(0.5).setRotation(-Math.PI / 2);
+    
+    this.miniMapAxisLabels = [horizontalLabel, verticalLabel];
   }
   
   updateTeamVotingBar() {
@@ -824,8 +999,8 @@ class GameScene extends Phaser.Scene {
     const miniMapY = this.gameHeight - miniMapSize - 40;
     
     // Convert team vote to mini-map position
-    // axis1: -1 (left) to +1 (right)
-    // axis2: -1 (top) to +1 (bottom)
+    // axis1: -1 (left) to +1 (right) -> convert to 0-1 range
+    // axis2: -1 (top) to +1 (bottom) -> convert to 0-1 range
     const normalizedX = (this.currentTeamVote.axis1 + 1) / 2; // Convert -1,1 to 0,1
     const normalizedY = (this.currentTeamVote.axis2 + 1) / 2; // Convert -1,1 to 0,1
     
@@ -843,22 +1018,27 @@ class GameScene extends Phaser.Scene {
     );
     
     let color = 0xFFFFFF; // Default white for center
-    if (intensity > 0.3) { // Only change color if there's significant positioning
-      if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 < 0) {
-        color = 0x60A5FA; // Blue
-      } else if (this.currentTeamVote.axis1 < 0 && this.currentTeamVote.axis2 < 0) {
-        color = 0xF87171; // Red
-      } else if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 > 0) {
-        color = 0xFBBF24; // Gold
+    if (intensity > 0.2) { // Lower threshold for color changes
+      // Map to correct quadrant colors based on coordinate system:
+      // Top-left: axis1 < 0, axis2 < 0 -> Red
+      // Top-right: axis1 > 0, axis2 < 0 -> Blue  
+      // Bottom-left: axis1 < 0, axis2 > 0 -> Green
+      // Bottom-right: axis1 > 0, axis2 > 0 -> Gold
+      if (this.currentTeamVote.axis1 < 0 && this.currentTeamVote.axis2 < 0) {
+        color = 0xF87171; // Red (top-left)
+      } else if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 < 0) {
+        color = 0x60A5FA; // Blue (top-right)
       } else if (this.currentTeamVote.axis1 < 0 && this.currentTeamVote.axis2 > 0) {
-        color = 0x34D399; // Green
+        color = 0x34D399; // Green (bottom-left)
+      } else if (this.currentTeamVote.axis1 > 0 && this.currentTeamVote.axis2 > 0) {
+        color = 0xFBBF24; // Gold (bottom-right)
       }
     }
     
     this.teamVoteIndicator.setFillStyle(color);
     
     // Make the indicator pulse slightly to draw attention
-    this.teamVoteIndicator.setScale(1.0 + Math.sin(Date.now() / 500) * 0.1);
+    this.teamVoteIndicator.setScale(1.2 + Math.sin(Date.now() / 500) * 0.1);
   }
 
   handleTeamVoteUpdate(data: any) {
@@ -874,7 +1054,229 @@ class GameScene extends Phaser.Scene {
     if (data.axes && JSON.stringify(data.axes) !== JSON.stringify(this.currentAxes)) {
       this.currentAxes = data.axes;
       this.updateAxisLabels();
+      this.createMiniMapAxisLabels(); // Update mini map labels too
     }
+  }
+
+  createScoreUI() {
+    // Don't create if scene isn't ready
+    if (!this.add) return;
+    
+    // Create score display container (initially hidden)
+    this.scoreUI.container = this.add.container(this.gameWidth / 2, this.gameHeight / 2);
+    this.scoreUI.container.setVisible(false);
+
+    // Background
+    this.scoreUI.background = this.add.rectangle(0, 0, this.gameWidth * 0.8, this.gameHeight * 0.7, 0x000000, 0.95);
+    this.scoreUI.background.setStrokeStyle(3, 0xffffff, 0.8);
+    this.scoreUI.container.add(this.scoreUI.background);
+
+    // Loading text
+    this.scoreUI.loadingText = this.add.text(0, 0, '', {
+      fontSize: '18px',
+      color: '#ffffff',
+      align: 'center'
+    });
+    this.scoreUI.loadingText.setOrigin(0.5);
+    this.scoreUI.container.add(this.scoreUI.loadingText);
+
+    // What you should have done text
+    this.scoreUI.whatYouShouldHaveText = this.add.text(0, -120, '', {
+      fontSize: '16px',
+      color: '#00ff00',
+      align: 'center',
+      wordWrap: { width: this.gameWidth * 0.7 }
+    });
+    this.scoreUI.whatYouShouldHaveText.setOrigin(0.5);
+    this.scoreUI.container.add(this.scoreUI.whatYouShouldHaveText);
+
+    // What you actually did text
+    this.scoreUI.whatYouActuallyDidText = this.add.text(0, 120, '', {
+      fontSize: '16px',
+      color: '#ff8888',
+      align: 'center',
+      wordWrap: { width: this.gameWidth * 0.7 }
+    });
+    this.scoreUI.whatYouActuallyDidText.setOrigin(0.5);
+    this.scoreUI.container.add(this.scoreUI.whatYouActuallyDidText);
+
+    // Accuracy text
+    this.scoreUI.accuracyText = this.add.text(0, 160, '', {
+      fontSize: '20px',
+      color: '#ffff00',
+      align: 'center',
+      fontStyle: 'bold'
+    });
+    this.scoreUI.accuracyText.setOrigin(0.5);
+    this.scoreUI.container.add(this.scoreUI.accuracyText);
+
+    // Mini map will be created dynamically when score is displayed
+    this.scoreUI.miniMapAxisLabels = [];
+  }
+
+  handleScoreLoading() {
+    this.isLoadingScore = true;
+    this.currentScore = null;
+
+    // Hide all other UI
+    if (this.scenarioUI.container) {
+      this.scenarioUI.container.setVisible(false);
+    }
+
+    // Show loading indicator
+    if (this.scoreUI.loadingText) {
+      this.scoreUI.loadingText.setText('🧠 Analyzing your performance...\nGenerating feedback...');
+      this.scoreUI.loadingText.setVisible(true);
+    }
+
+    // Hide other score elements
+    if (this.scoreUI.whatYouShouldHaveText) {
+      this.scoreUI.whatYouShouldHaveText.setVisible(false);
+    }
+    if (this.scoreUI.whatYouActuallyDidText) {
+      this.scoreUI.whatYouActuallyDidText.setVisible(false);
+    }
+    if (this.scoreUI.accuracyText) {
+      this.scoreUI.accuracyText.setVisible(false);
+    }
+
+    // Show score UI container
+    if (this.scoreUI.container) {
+      this.scoreUI.container.setVisible(true);
+    }
+
+    console.log('Score loading started');
+  }
+
+  handleScoreDisplay(data: any) {
+    this.isLoadingScore = false;
+    this.currentScore = data;
+
+    // Hide loading indicator
+    if (this.scoreUI.loadingText) {
+      this.scoreUI.loadingText.setVisible(false);
+    }
+
+    // Create mini map showing ideal vs actual
+    this.createScoreMiniMap(data);
+
+    // Show what you should have done
+    if (this.scoreUI.whatYouShouldHaveText) {
+      this.scoreUI.whatYouShouldHaveText.setText(`What you should have done:\n${data.whatYouShouldHaveDone}`);
+      this.scoreUI.whatYouShouldHaveText.setVisible(true);
+    }
+
+    // Show what you actually did
+    if (this.scoreUI.whatYouActuallyDidText) {
+      this.scoreUI.whatYouActuallyDidText.setText(`What you actually did:\n${data.whatYouActuallyDid}`);
+      this.scoreUI.whatYouActuallyDidText.setVisible(true);
+    }
+
+    // Show accuracy
+    if (this.scoreUI.accuracyText) {
+      this.scoreUI.accuracyText.setText(`Accuracy: ${data.accuracy.toFixed(1)}%`);
+      this.scoreUI.accuracyText.setVisible(true);
+    }
+
+    // Hide score UI after 20 seconds
+    this.time.delayedCall(20000, () => {
+      if (this.scoreUI.container) {
+        this.scoreUI.container.setVisible(false);
+      }
+    });
+
+    console.log('Score display shown:', data.accuracy.toFixed(1) + '%');
+  }
+
+  createScoreMiniMap(data: any) {
+    // Clear existing mini map
+    if (this.scoreUI.miniMap) {
+      this.scoreUI.miniMap.destroy();
+    }
+    if (this.scoreUI.teamMarker) {
+      this.scoreUI.teamMarker.destroy();
+    }
+    if (this.scoreUI.idealMarker) {
+      this.scoreUI.idealMarker.destroy();
+    }
+    this.scoreUI.miniMapAxisLabels?.forEach(label => label.destroy());
+    this.scoreUI.miniMapAxisLabels = [];
+
+    const miniMapSize = 200;
+    const miniMapX = 0; // Centered in score container
+    const miniMapY = -20; // Slightly above center
+
+    // Create mini map graphics
+    this.scoreUI.miniMap = this.add.graphics();
+    
+    // Create 4-way gradient
+    this.scoreUI.miniMap.fillGradientStyle(
+      0x3B82F6,  // Top-left: Blue
+      0xEF4444,  // Top-right: Red  
+      0xF59E0B,  // Bottom-left: Gold
+      0x10B981,  // Bottom-right: Green
+      0.7
+    );
+    this.scoreUI.miniMap.fillRect(
+      miniMapX - miniMapSize/2, 
+      miniMapY - miniMapSize/2, 
+      miniMapSize, 
+      miniMapSize
+    );
+    
+    // Border
+    this.scoreUI.miniMap.lineStyle(2, 0xffffff, 0.8);
+    this.scoreUI.miniMap.strokeRect(
+      miniMapX - miniMapSize/2, 
+      miniMapY - miniMapSize/2, 
+      miniMapSize, 
+      miniMapSize
+    );
+    
+    this.scoreUI.container?.add(this.scoreUI.miniMap);
+
+    // Convert positions to mini map coordinates
+    const teamX = miniMapX + (data.teamResponse.axis1 * miniMapSize / 2);
+    const teamY = miniMapY + (data.teamResponse.axis2 * miniMapSize / 2);
+    const idealX = miniMapX + (data.idealResponse.axis1 * miniMapSize / 2);
+    const idealY = miniMapY + (data.idealResponse.axis2 * miniMapSize / 2);
+
+    // Team marker (red)
+    this.scoreUI.teamMarker = this.add.circle(teamX, teamY, 12, 0xff0000, 0.9);
+    this.scoreUI.teamMarker.setStrokeStyle(3, 0xffffff);
+    this.scoreUI.container?.add(this.scoreUI.teamMarker);
+
+    // Ideal marker (green)
+    this.scoreUI.idealMarker = this.add.circle(idealX, idealY, 10, 0x00ff00, 0.9);
+    this.scoreUI.idealMarker.setStrokeStyle(2, 0xffffff);
+    this.scoreUI.container?.add(this.scoreUI.idealMarker);
+
+    // Axis labels
+    const axes = data.axes;
+    
+    // Horizontal axis label (bottom)
+    const horizontalLabel = this.add.text(miniMapX, miniMapY + miniMapSize/2 + 20, 
+      `${axes.axis1.negative} ← → ${axes.axis1.positive}`, {
+      fontSize: '12px', color: '#ffffff', align: 'center'
+    }).setOrigin(0.5);
+    this.scoreUI.container?.add(horizontalLabel);
+    this.scoreUI.miniMapAxisLabels?.push(horizontalLabel);
+    
+    // Vertical axis label (right side)
+    const verticalLabel = this.add.text(miniMapX + miniMapSize/2 + 30, miniMapY, 
+      `${axes.axis2.negative} ↑ ↓ ${axes.axis2.positive}`, {
+      fontSize: '12px', color: '#ffffff', align: 'center'
+    }).setOrigin(0.5).setRotation(-Math.PI / 2);
+    this.scoreUI.container?.add(verticalLabel);
+    this.scoreUI.miniMapAxisLabels?.push(verticalLabel);
+
+    // Legend
+    const legend = this.add.text(miniMapX, miniMapY + miniMapSize/2 + 50, 
+      '🔴 Your Team     🟢 Ideal', {
+      fontSize: '14px', color: '#ffffff', align: 'center'
+    }).setOrigin(0.5);
+    this.scoreUI.container?.add(legend);
+    this.scoreUI.miniMapAxisLabels?.push(legend);
   }
 }
 

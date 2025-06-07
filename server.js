@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const httpServer = createServer();
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: ["http://localhost:3000", "http://localhost:3002", "http://127.0.0.1:3000", "http://127.0.0.1:3002"],
     methods: ["GET", "POST"]
   }
 });
@@ -33,51 +33,42 @@ const gameState = {
 // Generate Party Brain scenarios using LLM
 async function generatePartyBrainScenario(activePlayers) {
   const roles = activePlayers.map(p => p.role);
-  const prompt = `You are generating an awkward, chaotic, or emotionally charged life situation for "The Hive Mind: Party Brain Edition" game.
+  const prompt = `You are generating an awkward, emotionally charged life situation for "The Hive Mind: Party Brain Edition" game.
 
   Active neural roles: ${roles.join(', ')}
 
-  Create a brief, relatable scenario (1-2 sentences) that puts someone in an uncomfortable social situation requiring immediate emotional response. The scenario should be:
-  - Awkward or emotionally charged
+  Create a concise, relatable scenario (2 sentences max) that puts someone in an uncomfortable social situation requiring immediate emotional response. The scenario should include:
+  - Clear context and stakes
+  - Awkward or emotionally charged elements
   - Something people can relate to
   - Requires choosing between approach vs avoidance AND vindictive vs empathetic responses
 
   Examples:
-  - "Your mom accidentally likes an ex's Instagram post from your phone."
-  - "You realize you've been mispronouncing your coworker's name for 6 months."
-  - "Your friend asks if you like their terrible new haircut while they're clearly fishing for compliments."
-  - "You walk into a public bathroom and realize you're in the wrong gender's restroom, but someone saw you enter."
+  - "You're at your reunion when your ex approaches with their new partner. They loudly announce that you 'inspired them to find real love' and everyone are watching your reaction."
+  - "During a work video call, you realize you've been muted for 5 minutes while arguing. Your colleagues look embarrassed and your boss asks you to repeat everything."
+  - "You're at a dinner party when the host serves a dish you're allergic to. They keep emphasizing how special the family recipe is while watching you expectantly."
 
   Respond with just the scenario text, no additional formatting.`;
 
   try {
-    const response = await fetch('http://localhost:3002/api/llm', {
+    const response = await fetch('http://localhost:3000/api/llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt, requestType: 'scenario' })
     });
     
     if (response.ok) {
       const data = await response.json();
+      console.log('LLM scenario generated successfully');
       return data.response.trim();
+    } else {
+      console.error('LLM API response not ok:', response.status, response.statusText);
+      throw new Error(`LLM API error: ${response.status}`);
     }
   } catch (error) {
     console.error('Failed to generate scenario:', error);
+    throw error;
   }
-  
-  // Fallback party brain scenarios
-  const fallbackScenarios = [
-    "Your mom accidentally likes an ex's Instagram post from your phone.",
-    "You realize you've been mispronouncing your coworker's name for 6 months.",
-    "Your friend asks if you like their terrible new haircut while they're clearly fishing for compliments.",
-    "You walk into a public bathroom and realize you're in the wrong gender's restroom, but someone saw you enter.",
-    "Your Uber driver starts crying and tells you about their divorce.",
-    "You accidentally send a screenshot of someone's text to that same person.",
-    "Your boss asks you to work weekend hours but frames it as 'a great opportunity'.",
-    "You're at dinner and your friend's card gets declined, everyone's looking at you."
-  ];
-  
-  return fallbackScenarios[Math.floor(Math.random() * fallbackScenarios.length)];
 }
 
 // Generate dynamic emotional axes for a scenario using LLM
@@ -109,7 +100,7 @@ The axes should represent the most psychologically relevant dimensions for this 
 Choose the most contextually appropriate pair for this scenario.`;
 
   try {
-    const response = await fetch('http://localhost:3002/api/llm', {
+    const response = await fetch('http://localhost:3000/api/llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, requestType: 'axes' })
@@ -119,17 +110,20 @@ Choose the most contextually appropriate pair for this scenario.`;
       const data = await response.json();
       try {
         const axes = JSON.parse(data.response.trim());
+        console.log('LLM axes generated successfully:', axes);
         return axes;
       } catch (parseError) {
         console.error('Failed to parse axes JSON:', parseError);
-        return getDefaultAxes();
+        throw new Error('Invalid JSON response for axes');
       }
+    } else {
+      console.error('LLM API response not ok for axes:', response.status, response.statusText);
+      throw new Error(`LLM API error for axes: ${response.status}`);
     }
   } catch (error) {
     console.error('Failed to generate dynamic axes:', error);
+    throw error;
   }
-  
-  return getDefaultAxes();
 }
 
 // Generate ideal response using LLM
@@ -146,14 +140,14 @@ Consider what would be the most psychologically healthy, socially appropriate, a
 {
   "axis1_value": number_between_-1_and_1,
   "axis2_value": number_between_-1_and_1,
-  "reasoning": "brief explanation of why this is ideal"
+  "ideal_action": "brief 3-5 word action you should take"
 }
 
 Example: If the ideal response is moderately empathetic and slightly avoidant, you might return:
-{"axis1_value": -0.3, "axis2_value": 0.6, "reasoning": "Slight avoidance prevents escalation while empathy maintains relationships"}`;
+{"axis1_value": -0.3, "axis2_value": 0.6, "ideal_action": "Step back with compassion"}`;
 
   try {
-    const response = await fetch('http://localhost:3002/api/llm', {
+    const response = await fetch('http://localhost:3000/api/llm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, requestType: 'ideal' })
@@ -162,22 +156,28 @@ Example: If the ideal response is moderately empathetic and slightly avoidant, y
     if (response.ok) {
       const data = await response.json();
       try {
+        console.log('Raw LLM response for ideal:', data.response);
         const ideal = JSON.parse(data.response.trim());
-        return {
+        const result = {
           axis1: Math.max(-1, Math.min(1, ideal.axis1_value)),
           axis2: Math.max(-1, Math.min(1, ideal.axis2_value)),
-          reasoning: ideal.reasoning
+          idealAction: ideal.ideal_action
         };
+        console.log('LLM ideal response generated successfully:', result);
+        return result;
       } catch (parseError) {
         console.error('Failed to parse ideal response JSON:', parseError);
-        return getRandomIdeal();
+        console.error('Raw response was:', data.response);
+        throw new Error('Invalid JSON response for ideal');
       }
+    } else {
+      console.error('LLM API response not ok for ideal:', response.status, response.statusText);
+      throw new Error(`LLM API error for ideal: ${response.status}`);
     }
   } catch (error) {
     console.error('Failed to generate ideal response:', error);
+    throw error;
   }
-  
-  return getRandomIdeal();
 }
 
 // Default axes fallback
@@ -193,7 +193,7 @@ function getRandomIdeal() {
   return {
     axis1: (Math.random() - 0.5) * 2,
     axis2: (Math.random() - 0.5) * 2,
-    reasoning: "Randomly generated fallback"
+    idealAction: "Randomly generated fallback"
   };
 }
 
@@ -202,13 +202,59 @@ async function startNewScenario() {
   const activePlayers = Array.from(players.values());
   if (activePlayers.length === 0) return;
   
-  const scenario = await generatePartyBrainScenario(activePlayers);
+  // Emit loading state to all players
+  io.emit('scenario:loading');
+  console.log('Starting LLM scenario generation...');
   
-  // Generate dynamic axes for this scenario
-  const axes = await generateDynamicAxes(scenario);
+  let scenario, axes, idealResponse;
+  let usedFallback = false;
   
-  // Generate ideal response for this scenario
-  const idealResponse = await generateIdealResponse(scenario, axes);
+  try {
+    // Generate scenario with timeout
+    scenario = await Promise.race([
+      generatePartyBrainScenario(activePlayers),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Scenario timeout')), 15000))
+    ]);
+    
+    // Generate dynamic axes with timeout
+    axes = await Promise.race([
+      generateDynamicAxes(scenario),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Axes timeout')), 15000))
+    ]);
+    
+    // Generate ideal response with timeout  
+    idealResponse = await Promise.race([
+      generateIdealResponse(scenario, axes),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Ideal timeout')), 15000))
+    ]);
+    
+  } catch (error) {
+    console.log('LLM generation failed or timed out, using fallbacks:', error.message);
+    usedFallback = true;
+    
+    // Use fallbacks only after timeout
+    if (!scenario || scenario.includes('fallback')) {
+      const fallbackScenarios = [
+        "You're at your reunion when your ex approaches with their new partner. They loudly announce that you 'inspired them to find real love' and everyone is watching your reaction.",
+        "During a work video call, you realize you've been muted for 5 minutes while arguing. Your colleagues look embarrassed and your boss asks you to repeat everything.",
+        "You're at a dinner party when the host serves a dish you're allergic to. They keep emphasizing how special the family recipe is while watching you expectantly.",
+        "Your Uber driver starts crying about their divorce and asks for your advice. They want to know if they should fight for custody.",
+        "You accidentally send a screenshot of someone's complaint text to that same person. They respond immediately asking 'What is this?'",
+        "Your boss frames working weekends as 'a great growth opportunity' while making it clear it's not optional. Your coworker who refuses overtime is standing right there.",
+        "You're at dinner when your friend's card gets declined for the third time. The server is impatient and your friend looks mortified.",
+        "You walk into the wrong restroom by mistake. Someone inside saw you enter and is staring at you in the mirror."
+      ];
+      scenario = fallbackScenarios[Math.floor(Math.random() * fallbackScenarios.length)];
+    }
+    
+    if (!axes) {
+      axes = getDefaultAxes();
+    }
+    
+    if (!idealResponse) {
+      idealResponse = getRandomIdeal();
+    }
+  }
   
   currentScenario = {
     id: Date.now(),
@@ -218,7 +264,8 @@ async function startNewScenario() {
     startTime: Date.now(),
     duration: ROUND_DURATIONS[currentRound],
     responses: new Map(),
-    teamVote: { axis1: 0, axis2: 0 } // Track real-time team average
+    teamVote: { axis1: 0, axis2: 0 }, // Track real-time team average
+    usedFallback: usedFallback
   };
   
   scenarioStartTime = Date.now();
@@ -235,10 +282,11 @@ async function startNewScenario() {
   console.log('New scenario started:', scenario);
   console.log('Dynamic axes:', axes);
   console.log('Ideal response:', idealResponse);
+  console.log('Used fallback:', usedFallback);
 }
 
 // End current scenario
-function endCurrentScenario() {
+async function endCurrentScenario() {
   if (currentScenario) {
     // Calculate team response (average position of all players)
     const activePlayers = Array.from(players.values());
@@ -247,15 +295,19 @@ function endCurrentScenario() {
     let playerCount = 0;
     
     activePlayers.forEach(player => {
-      // Convert screen coordinates to emotional values
-      const centerX = 800; // Assuming 800px width, should be dynamic
-      const centerY = 600; // Assuming 600px height, should be dynamic
-      const margin = 60;
-      const mapWidth = 800 - (margin * 2);
-      const mapHeight = 600 - (margin * 2);
+      // Use player's actual screen dimensions
+      const gameWidth = player.gameWidth || 1200;
+      const gameHeight = player.gameHeight || 800;
       
-      const axis1 = -((player.x - centerX/2) / (mapWidth / 2));
-      const axis2 = ((player.y - centerY/2) / (mapHeight / 2));
+      // Convert screen coordinates to emotional values
+      const centerX = gameWidth / 2;
+      const centerY = gameHeight / 2;
+      const margin = 60;
+      const mapWidth = gameWidth - (margin * 2);
+      const mapHeight = gameHeight - (margin * 2);
+      
+      const axis1 = ((player.x - centerX) / (mapWidth / 2));
+      const axis2 = ((player.y - centerY) / (mapHeight / 2));
       
       teamAxis1 += Math.max(-1, Math.min(1, axis1));
       teamAxis2 += Math.max(-1, Math.min(1, axis2));
@@ -307,15 +359,41 @@ function endCurrentScenario() {
       idealAxis2,
       accuracy,
       responseCount: currentScenario.responses.size,
-      idealReasoning: currentScenario.idealResponse.reasoning
+      idealAction: currentScenario.idealResponse.idealAction
     });
     
-    io.emit('scenario:end', {
+    // Emit loading state for score generation
+    io.emit('score:loading');
+    console.log('Generating LLM feedback for score display...');
+    
+    let whatYouShouldHaveDone, whatYouActuallyDid;
+    
+    try {
+      // Generate LLM feedback with timeouts
+      whatYouShouldHaveDone = await Promise.race([
+        generateWhatYouShouldHaveDone(currentScenario.text, currentScenario.axes, currentScenario.idealResponse),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Should have done timeout')), 10000))
+      ]);
+      
+      whatYouActuallyDid = await Promise.race([
+        generateWhatYouActuallyDid(currentScenario.text, currentScenario.axes, { axis1: teamAxis1, axis2: teamAxis2 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Actually did timeout')), 10000))
+      ]);
+      
+    } catch (error) {
+      console.log('LLM feedback generation failed or timed out, using fallbacks:', error.message);
+      whatYouShouldHaveDone = `The ideal approach would have been ${currentScenario.idealResponse.idealAction.toLowerCase()}.`;
+      whatYouActuallyDid = `The team chose a ${teamAxis1 > 0 ? 'more direct' : 'more avoidant'} and ${teamAxis2 > 0 ? 'more empathetic' : 'more harsh'} approach.`;
+    }
+    
+    io.emit('score:display', {
       scenarioId: currentScenario.id,
-      responses: Array.from(currentScenario.responses.entries()),
+      scenario: currentScenario.text,
       teamResponse: { axis1: teamAxis1, axis2: teamAxis2 },
       idealResponse: { axis1: idealAxis1, axis2: idealAxis2 },
-      idealReasoning: currentScenario.idealResponse.reasoning,
+      idealAction: currentScenario.idealResponse.idealAction,
+      whatYouShouldHaveDone,
+      whatYouActuallyDid,
       axes: currentScenario.axes,
       accuracy: accuracy,
       gameState: {
@@ -353,14 +431,12 @@ function endCurrentScenario() {
     }
   }
   
-  // Schedule next scenario if game continues
-  setTimeout(startNewScenario, SCENARIO_INTERVAL - ROUND_DURATIONS[Math.min(currentRound, MAX_ROUNDS - 1)]);
+  // Schedule next scenario after 20 seconds (instead of the complex calculation)
+  setTimeout(startNewScenario, 20000);
 }
 
 // Update team voting average in real-time
 function updateTeamVote() {
-  if (!currentScenario) return;
-  
   const activePlayers = Array.from(players.values());
   let teamAxis1 = 0;
   let teamAxis2 = 0;
@@ -369,7 +445,7 @@ function updateTeamVote() {
   console.log(`Updating team vote for ${activePlayers.length} players`);
   
   activePlayers.forEach(player => {
-    // Use player's screen dimensions if available, fallback to defaults
+    // Use player's actual screen dimensions
     const gameWidth = player.gameWidth || 1200;
     const gameHeight = player.gameHeight || 800;
     
@@ -380,7 +456,10 @@ function updateTeamVote() {
     const mapWidth = gameWidth - (margin * 2);
     const mapHeight = gameHeight - (margin * 2);
     
-    const axis1 = -((player.x - centerX) / (mapWidth / 2));
+    // Fix coordinate system: 
+    // axis1: left (-1) to right (+1)
+    // axis2: top (-1) to bottom (+1)
+    const axis1 = ((player.x - centerX) / (mapWidth / 2));
     const axis2 = ((player.y - centerY) / (mapHeight / 2));
     
     console.log(`Player ${player.name}: pos(${player.x}, ${player.y}) -> axes(${axis1.toFixed(2)}, ${axis2.toFixed(2)}) [dims: ${gameWidth}x${gameHeight}]`);
@@ -397,15 +476,90 @@ function updateTeamVote() {
   
   console.log(`Team average: (${teamAxis1.toFixed(2)}, ${teamAxis2.toFixed(2)})`);
   
-  // Update current scenario's team vote
-  currentScenario.teamVote = { axis1: teamAxis1, axis2: teamAxis2 };
+  // Update current scenario's team vote if scenario is active
+  if (currentScenario) {
+    currentScenario.teamVote = { axis1: teamAxis1, axis2: teamAxis2 };
+  }
   
-  // Broadcast real-time team vote to all players
+  // Always broadcast real-time team vote to all players (even when no scenario)
   io.emit('team:vote_update', {
-    teamVote: currentScenario.teamVote,
-    axes: currentScenario.axes,
+    teamVote: { axis1: teamAxis1, axis2: teamAxis2 },
+    axes: currentScenario ? currentScenario.axes : getDefaultAxes(),
     playerCount: playerCount
   });
+}
+
+// Generate feedback about what the team should have done (LLM)
+async function generateWhatYouShouldHaveDone(scenario, axes, idealResponse) {
+  const prompt = `Given this scenario and the ideal response, explain what the player should have done in 1-2 sentences.
+
+Scenario: "${scenario}"
+
+Axis 1: ${axes.axis1.negative} (-1) ↔ ${axes.axis1.positive} (+1)
+Axis 2: ${axes.axis2.negative} (-1) ↔ ${axes.axis2.positive} (+1)
+
+Ideal position: (${idealResponse.axis1.toFixed(2)}, ${idealResponse.axis2.toFixed(2)})
+Ideal action: "${idealResponse.idealAction}"
+
+Explain what the ideal response would have looked like in practice. Keep it concise and actionable.
+
+Respond with just the explanation text, no additional formatting.`;
+
+  try {
+    const response = await fetch('http://localhost:3000/api/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, requestType: 'shouldHaveDone' })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('LLM "should have done" generated successfully');
+      return data.response.trim();
+    } else {
+      console.error('LLM API response not ok for should have done:', response.status, response.statusText);
+      throw new Error(`LLM API error for should have done: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Failed to generate what you should have done:', error);
+    throw error;
+  }
+}
+
+// Generate feedback about what the team actually did (LLM)
+async function generateWhatYouActuallyDid(scenario, axes, teamResponse) {
+  const prompt = `Given this scenario and the team's actual response, describe what the team actually did in 1-2 sentences.
+
+Scenario: "${scenario}"
+
+Axis 1: ${axes.axis1.negative} (-1) ↔ ${axes.axis1.positive} (+1)
+Axis 2: ${axes.axis2.negative} (-1) ↔ ${axes.axis2.positive} (+1)
+
+Team's actual position: (${teamResponse.axis1.toFixed(2)}, ${teamResponse.axis2.toFixed(2)})
+
+Interpret this position and describe what kind of response the team chose. Be specific about the emotional stance and approach.
+
+Respond with just the description text, no additional formatting.`;
+
+  try {
+    const response = await fetch('http://localhost:3000/api/llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, requestType: 'actuallyDid' })
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('LLM "actually did" generated successfully');
+      return data.response.trim();
+    } else {
+      console.error('LLM API response not ok for actually did:', response.status, response.statusText);
+      throw new Error(`LLM API error for actually did: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('Failed to generate what you actually did:', error);
+    throw error;
+  }
 }
 
 io.on('connection', (socket) => {
@@ -445,6 +599,9 @@ io.on('connection', (socket) => {
     const playersArray = Array.from(players.values());
     io.emit('player:update', playersArray);
     
+    // Update team vote when new player joins
+    updateTeamVote();
+    
     // Start first scenario if this is the first player
     if (players.size === 1 && !currentScenario) {
       setTimeout(startNewScenario, 3000); // Give players time to get oriented
@@ -480,6 +637,9 @@ io.on('connection', (socket) => {
       // Send updated game state
       const playersArray = Array.from(players.values());
       io.emit('player:update', playersArray);
+      
+      // Update team vote after player leaves
+      updateTeamVote();
     }
   });
 
@@ -508,20 +668,22 @@ io.on('connection', (socket) => {
 
   // Handle scenario responses
   socket.on('scenario:respond', (responseData) => {
-    if (currentScenario && players.has(socket.id)) {
-      const player = players.get(socket.id);
-      currentScenario.responses.set(socket.id, {
-        playerId: player.playerId,
-        name: player.name,
-        role: player.role,
-        response: responseData.response,
-        timestamp: Date.now()
-      });
-      
-      console.log(`${player.name} (${player.role}) responded: ${responseData.response}`);
-      
-      // Broadcast response count update
-      io.emit('scenario:response_count', currentScenario.responses.size);
+    if (currentScenario) {
+      const player = Array.from(players.values()).find(p => p.socketId === socket.id);
+      if (player) {
+        currentScenario.responses.set(socket.id, {
+          playerId: player.id,
+          name: player.name,
+          role: player.role,
+          response: responseData.response,
+          timestamp: Date.now()
+        });
+        
+        console.log(`${player.name} (${player.role}) responded: ${responseData.response}`);
+        
+        // Broadcast response count update
+        io.emit('scenario:response_count', currentScenario.responses.size);
+      }
     }
   });
 });

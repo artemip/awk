@@ -12,6 +12,7 @@ const GameCanvas = dynamic(() => import('../components/GameCanvas'), {
 interface Player {
   playerId: string;
   name: string;
+  role: string;
 }
 
 export default function Home() {
@@ -37,7 +38,8 @@ export default function Home() {
         const data = await response.json();
         setCurrentPlayer({
           playerId: data.playerId,
-          name: playerName.trim()
+          name: playerName.trim(),
+          role: data.role
         });
         setGameStarted(true);
       } else {
@@ -95,13 +97,6 @@ export default function Home() {
         </div>
       ) : (
         <div className="relative w-full h-screen overflow-hidden">
-          {/* Floating game title */}
-          <div className="absolute top-4 left-4 z-10">
-            <h1 className="text-lg font-bold text-white/80 bg-black/30 backdrop-blur-sm px-3 py-1 rounded-lg border border-white/20">
-              The Hive Mind: Party Brain Edition
-            </h1>
-          </div>
-          
           {/* Full screen game */}
           <GameCanvas player={currentPlayer} />
         </div>

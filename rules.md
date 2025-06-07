@@ -46,6 +46,3 @@ Example: “You pull your mom aside and ask why she was snooping. She responds w
 6. Consequences or Score
 
 Ongoing meters for Mental Stability, Social Reputation, or Chaos can track your team’s progress through multiple scenarios.
-
-1. Special Powers
-2. 
