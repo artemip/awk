@@ -59,10 +59,14 @@ class GameScene extends Phaser.Scene {
     this.socket = await initializeSocket();
     this.socket.connect();
 
-    // Set up input - ensure keyboard is available
-    if (this.input && this.input.keyboard) {
-      this.cursors = this.input.keyboard.createCursorKeys();
-    }
+    // Add background
+    this.add.rectangle(400, 300, 800, 600, 0x0a0a0a);
+    
+    // Add grid
+    this.createGrid();
+
+    // Set up input after the scene is fully created
+    this.setupInput();
 
     // Socket event listeners
     this.socket.on(socketEvents.CONNECT, () => {
@@ -89,12 +93,20 @@ class GameScene extends Phaser.Scene {
     this.socket.on(socketEvents.DISCONNECT, () => {
       console.log('Disconnected from server');
     });
+  }
 
-    // Add background
-    this.add.rectangle(400, 300, 800, 600, 0x0a0a0a);
-    
-    // Add grid
-    this.createGrid();
+  setupInput() {
+    // Ensure keyboard plugin is available
+    if (this.input.keyboard) {
+      this.cursors = this.input.keyboard.createCursorKeys();
+    } else {
+      // Fallback: wait for next frame and try again
+      this.time.delayedCall(100, () => {
+        if (this.input.keyboard) {
+          this.cursors = this.input.keyboard.createCursorKeys();
+        }
+      });
+    }
   }
 
   createGrid() {
@@ -245,6 +257,10 @@ export default function GameCanvas({ player }: GameCanvasProps) {
       scene: GameScene,
       input: {
         keyboard: true
+      },
+      scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
       },
       physics: {
         default: 'arcade',
