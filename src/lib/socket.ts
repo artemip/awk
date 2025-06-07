@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 let socket: any = null;
 let io: any = null;
 

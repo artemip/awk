@@ -37,7 +37,6 @@ class GameScene extends Phaser.Scene {
   private gameData: Map<string, GamePlayer> = new Map();
   private currentPlayer: Player | null = null;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private socket: any = null;
   private lastMoveTime: number = 0;
   private moveInterval: number = 50; // 20 FPS movement updates
@@ -195,14 +194,11 @@ class GameScene extends Phaser.Scene {
         nameText.setOrigin(0.5);
         
         // Store text reference on neuron for updates
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (neuron as any).nameText = nameText;
       } else {
         // Update position
         neuron.setPosition(player.x, player.y);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((neuron as any).nameText) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (neuron as any).nameText.setPosition(player.x, player.y - 35);
         }
       }
@@ -210,9 +206,7 @@ class GameScene extends Phaser.Scene {
       // Highlight current player
       if (this.currentPlayer && player.id === this.currentPlayer.playerId) {
         neuron.setStrokeStyle(3, 0xffffff);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((neuron as any).nameText) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (neuron as any).nameText.setStyle({ color: '#ffff00' });
         }
       }
@@ -229,9 +223,7 @@ class GameScene extends Phaser.Scene {
   removePlayer(playerId: string) {
     const neuron = this.players.get(playerId);
     if (neuron) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((neuron as any).nameText) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (neuron as any).nameText.destroy();
       }
       neuron.destroy();
